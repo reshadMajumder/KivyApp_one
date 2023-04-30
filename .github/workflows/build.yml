@@ -1,42 +1,67 @@
-name: CI
+# cd.yml
+name: CD
+
+
+
 on:
-  push:
-    branches: [ main ]
-
+  pull_request:
+    types:
+      - closed
+    branches:
+      - 'main'
+      
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
+ deploy_ios:
+    name: Deploy beta build to TestFlight
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2
-
-      # used to cache dependencies with a timeout
-      - name: Get Date
-        id: get-date
-        run: |
-          echo "::set-output name=date::$(/bin/date -u "+%Y%m%d")"
-        shell: bash
-
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v2
+      - name: Checkout code from ref
+        uses: actions/checkout@v2
         with:
-          path: .buildozer_global
-          key: buildozer-global-${{ hashFiles('buildozer.spec') }} # Replace with your path
-
-      - uses: actions/cache@v2
+          ref: ${{github.ref}}
+      - name: Run Flutter tasks
+        uses: subosito/flutter-action@v1
         with:
-          path: .buildozer
-          key: ${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ hashFiles('buildozer.spec') }}
-
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+          flutter-version: '3.3.3'
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: increment major
+        if: "contains(github.event.pull_request.title, 'major')"
+        uses: maierj/fastlane-action@v1.4.0
+        with: 
+          lane: update_major
+          subdirectory: ios
+      - name: increment minor
+        if: "contains(github.event.pull_request.title, 'minor')"
+        uses: maierj/fastlane-action@v1.4.0
+        with: 
+          lane: update_minor
+          subdirectory: ios
+      - name: increment patch
+        if: "contains(github.event.pull_request.title, 'patch')"
+        uses: maierj/fastlane-action@v1.4.0
+        with: 
+          lane: update_patch
+          subdirectory: ios
+      - name: Deploy iOS Beta to TestFlight via Fastlane
+        uses: maierj/fastlane-action@v1.4.0
         with:
-          command: buildozer android debug
-          buildozer_version: master
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+          lane: _release_candidate
+          subdirectory: ios
+      - uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          name: package
-          path: ${{ steps.buildozer.outputs.filename }}
+          commit_message: Auto Commit
+
+      
+        env:
+          APP_STORE_CONNECT_TEAM_ID: '${{ secrets.APP_STORE_CONNECT_TEAM_ID }}'
+          DEVELOPER_APP_ID: '${{ secrets.DEVELOPER_APP_ID }}'
+          DEVELOPER_APP_IDENTIFIER: '${{ secrets.DEVELOPER_APP_IDENTIFIER }}'
+          DEVELOPER_PORTAL_TEAM_ID: '${{ secrets.DEVELOPER_PORTAL_TEAM_ID }}'
+          FASTLANE_APPLE_ID: '${{ secrets.FASTLANE_APPLE_ID }}'
+          FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD: '${{ secrets.FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD }}'
+          MATCH_PASSWORD: '${{ secrets.MATCH_PASSWORD }}'
+          GIT_AUTHORIZATION: '${{ secrets.GIT_AUTHORIZATION }}'
+          PROVISIONING_PROFILE_SPECIFIER: '${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}'
+          TEMP_KEYCHAIN_PASSWORD: '${{ secrets.TEMP_KEYCHAIN_PASSWORD }}'
+          TEMP_KEYCHAIN_USER: '${{ secrets.TEMP_KEYCHAIN_USER }}'
